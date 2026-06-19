@@ -14,7 +14,7 @@ source "${SCRIPT_DIR}/resolve-ksu-ref.sh"
 # Artifact zip names on nightly.link match actions/upload-artifact names + ".zip".
 nightly_artifact_zip() {
   case "$REPO" in
-    ReSukiSU/ReSukiSU) printf '%s\n' "Manager-release.zip" ;;
+    ReSukiSU/ReSukiSU) printf '%s\n' "Spoofed-Manager-release.zip" ;;
     tiann/KernelSU | SukiSU-Ultra/SukiSU-Ultra) printf '%s\n' "manager.zip" ;;
     *)
       echo "::error::Unknown repo for nightly.link manager download: ${REPO}" >&2
@@ -25,7 +25,7 @@ nightly_artifact_zip() {
 
 manager_artifact_name() {
   case "$REPO" in
-    ReSukiSU/ReSukiSU) printf '%s\n' "Manager-release" ;;
+    ReSukiSU/ReSukiSU) printf '%s\n' "Spoofed-Manager-release" ;;
     *) printf '%s\n' "manager" ;;
   esac
 }
