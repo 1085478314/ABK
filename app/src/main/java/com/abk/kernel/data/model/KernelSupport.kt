@@ -38,10 +38,12 @@ object KernelSupport {
         KernelVersionLine("android12", "5.10"),
         KernelVersionLine("android13", "5.15"),
         KernelVersionLine("android14", "6.1"),
-        KernelVersionLine("android15", "6.6")
+        KernelVersionLine("android15", "6.6"),
+        KernelVersionLine("android16", "6.12")
     )
 
     val onePlusCpuOptions = listOf(
+        "sm8850",
         "sm8750",
         "sm8735",
         "mt6991",
@@ -58,6 +60,8 @@ object KernelSupport {
     )
 
     val onePlusDeviceProfiles = listOf(
+        OnePlusDeviceProfile("oneplus_15", "OnePlus 15", "ColorOS/OxygenOS 16", "sm8850", "android16", "6.12"),
+        OnePlusDeviceProfile("oneplus_15t", "OnePlus 15T", "ColorOS/OxygenOS 16", "sm8850", "android16", "6.12"),
         OnePlusDeviceProfile("oneplus_13_b", "OnePlus 13", "ColorOS/OxygenOS 16", "sm8750", "android15", "6.6"),
         OnePlusDeviceProfile("oneplus_13s_b", "OnePlus 13s", "ColorOS/OxygenOS 16", "sm8750", "android15", "6.6"),
         OnePlusDeviceProfile("oneplus_13t_b", "OnePlus 13T", "ColorOS/OxygenOS 16", "sm8750", "android15", "6.6"),
@@ -242,7 +246,9 @@ object KernelSupport {
             ?: onePlusLines.first().androidVersion
 
     fun onePlusSusfsSupported(androidVersion: String, kernelVersion: String): Boolean =
-        "$androidVersion/$kernelVersion" in setOf("android14/6.1", "android15/6.6")
+        "$androidVersion/$kernelVersion" in setOf("android14/6.1", "android15/6.6", "android16/6.12")
+
+    fun onePlusLz4kdSupported(kernelVersion: String): Boolean = kernelVersion != "6.12"
 
     fun normalize(config: KernelBuildConfig): KernelBuildConfig {
         val target = normalizeBuildTarget(config.buildTarget)
@@ -284,6 +290,7 @@ object KernelSupport {
         val gkiKpmSupported = isKpmSupported(BUILD_TARGET_GKI, ksuVariant, normalizedKsuBranch)
         val onePlusProxyAllowed = !onePlusCpu.startsWith("mt")
         val onePlusSusfsEnabled = onePlusSusfsSupported(line.androidVersion, line.kernelVersion)
+        val onePlusLz4kdEnabled = onePlusLz4kdSupported(line.kernelVersion)
         return config.copy(
             buildTarget = target,
             androidVersion = line.androidVersion,
@@ -312,6 +319,11 @@ object KernelSupport {
             },
             kpmPassword = if (isOnePlus || ksuVariant == KSU_VARIANT_NONE || !gkiKpmSupported) "" else config.kpmPassword,
             virtualizationSupport = if (isOnePlus) "off" else normalizeVirtualizationSupport(line.kernelVersion, config.virtualizationSupport),
+            customKernelOptions = if (isOnePlus) {
+                emptyList()
+            } else {
+                normalizeCustomKernelOptions(config.customKernelOptions)
+            },
             useCustomExternalModules = if (isOnePlus) false else config.useCustomExternalModules,
             customExternalModules = if (isOnePlus) {
                 emptyList()
@@ -348,7 +360,7 @@ object KernelSupport {
             },
             onePlusCpu = if (isOnePlus) onePlusCpu else "sm8650",
             onePlusDeviceManifest = if (isOnePlus) onePlusDeviceManifest else "oneplus_12_b",
-            onePlusUseLz4kd = if (isOnePlus) config.onePlusUseLz4kd else false,
+            onePlusUseLz4kd = if (isOnePlus) onePlusLz4kdEnabled && config.onePlusUseLz4kd else false,
             onePlusUseBbr = if (isOnePlus) config.onePlusUseBbr else false,
             onePlusUseProxyOptimization = if (isOnePlus) {
                 onePlusProxyAllowed && config.onePlusUseProxyOptimization
@@ -374,6 +386,37 @@ object KernelSupport {
     fun onePlusDeviceLabel(manifest: String): String {
         val profile = onePlusDeviceProfile(manifest) ?: return manifest
         return "${profile.displayName} · ${profile.systemVersion} · ${profile.androidVersion}/${profile.kernelVersion} · ${profile.cpu}"
+    }
+
+    fun normalizeCustomKernelSymbol(value: String?): String {
+        val compact = value.orEmpty().trim().replace(Regex("\\s+"), "")
+        if (compact.isBlank()) return ""
+        val withPrefix = if (compact.startsWith("CONFIG_", ignoreCase = true)) {
+            compact
+        } else {
+            "CONFIG_$compact"
+        }
+        val upper = withPrefix.uppercase()
+        return if (Regex("^CONFIG_[A-Z0-9_]+$").matches(upper)) upper else ""
+    }
+
+    fun normalizeCustomKernelOptions(options: List<CustomKernelOption>?): List<CustomKernelOption> {
+        if (options.isNullOrEmpty()) return emptyList()
+        val ordered = linkedMapOf<String, CustomKernelOption>()
+        options.forEach { option ->
+            val symbol = normalizeCustomKernelSymbol(option.symbol)
+            if (symbol.isBlank()) return@forEach
+            val mode = CustomKernelOptionMode.normalize(option.mode)
+            val normalized = CustomKernelOption(
+                symbol = symbol,
+                mode = mode,
+                rawValue = if (mode == CustomKernelOptionMode.RAW) option.rawValue.trim() else "",
+                source = option.source.trim()
+            )
+            ordered.remove(symbol)
+            ordered[symbol] = normalized
+        }
+        return ordered.values.toList()
     }
 
     fun normalizeKsuVariant(value: String?): String = normalizeKsuVariant(value, BUILD_TARGET_GKI)
